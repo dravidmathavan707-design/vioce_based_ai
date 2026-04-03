@@ -7,3 +7,4 @@ wikipedia
 edge-tts
 pygame
 flask
+gunicorn
