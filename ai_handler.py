@@ -2,6 +2,8 @@ from google import genai
 from google.genai import types
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dotenv import load_dotenv
 
 # Load API Keys
@@ -14,8 +16,13 @@ API_KEYS = [
 # Filter out empty/placeholder keys
 API_KEYS = [k for k in API_KEYS if k and k != "YOUR_SECOND_API_KEY_HERE" and k != "YOUR_THIRD_API_KEY_HERE"]
 
+print(f"✅ Loaded {len(API_KEYS)} API key(s)")
+
 # Track which key is currently active
 current_key_index = 0
+
+# Maximum time (seconds) to wait for each key before switching
+KEY_TIMEOUT = 3
 
 # System prompt to get short, voice-friendly responses
 SYSTEM_PROMPT = """You are a helpful voice assistant. 
@@ -34,35 +41,60 @@ def clean_for_speech(text):
     text = re.sub(r'\s+', ' ', text)       # Collapse whitespace
     return text.strip()
 
+def _call_gemini(key, prompt):
+    """Make a single Gemini API call (runs inside a thread for timeout)."""
+    client = genai.Client(api_key=key)
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=150
+        )
+    )
+    return response.text
+
 def get_ai_response(prompt):
-    """Gets a response from Gemini AI, automatically switching API keys on failure."""
+    """Gets a response from Gemini AI, with 3s timeout per key and auto-switching."""
     global current_key_index
 
     if not API_KEYS:
         return "No API keys configured. Please add keys in your .env file."
 
-    # Try each key starting from the current one
-    attempts = len(API_KEYS)
+    total_keys = len(API_KEYS)
     last_error = None
-    for _ in range(attempts):
-        key = API_KEYS[current_key_index]
-        try:
-            print(f"Using API Key {current_key_index + 1}...")
-            client = genai.Client(api_key=key)
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    max_output_tokens=150
-                )
-            )
-            return clean_for_speech(response.text)
-        except Exception as e:
-            print(f"API Key {current_key_index + 1} failed: {e}")
-            last_error = str(e)
-            # Switch to next key
-            current_key_index = (current_key_index + 1) % len(API_KEYS)
-            print(f"Switching to API Key {current_key_index + 1}...")
 
-    return f"API keys failed. The problem is: {last_error}"
+    for attempt in range(total_keys):
+        key_num = current_key_index + 1
+        key = API_KEYS[current_key_index]
+
+        try:
+            print(f"🔑 Attempt {attempt + 1}/{total_keys} — Using API Key {key_num} (timeout: {KEY_TIMEOUT}s)...")
+            start_time = time.time()
+
+            # Run the API call in a thread with a timeout
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_call_gemini, key, prompt)
+                result = future.result(timeout=KEY_TIMEOUT)
+
+            elapsed = round(time.time() - start_time, 2)
+            print(f"✅ API Key {key_num} succeeded in {elapsed}s!")
+            return clean_for_speech(result)
+
+        except TimeoutError:
+            elapsed = round(time.time() - start_time, 2)
+            print(f"⏰ API Key {key_num} TIMED OUT after {elapsed}s!")
+            last_error = f"Key {key_num} timed out after {KEY_TIMEOUT}s"
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ API Key {key_num} FAILED: {error_msg}")
+            last_error = error_msg
+
+        # Switch to next key
+        old_key = current_key_index + 1
+        current_key_index = (current_key_index + 1) % total_keys
+        new_key = current_key_index + 1
+        print(f"🔄 Switching from Key {old_key} → Key {new_key}...")
+
+    return f"All {total_keys} API keys failed. Last error: {last_error}"
