@@ -1,12 +1,38 @@
-import speech_recognition as sr
-import edge_tts
-import pygame
 import asyncio
 import os
 import tempfile
 
-# Initialize pygame mixer for audio playback
-pygame.mixer.init()
+try:
+    import speech_recognition as sr
+except ImportError:
+    sr = None
+
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
+
+try:
+    import pygame
+except ImportError:
+    pygame = None
+
+_mixer_ready = False
+
+
+def _ensure_mixer():
+    global _mixer_ready
+
+    if pygame is None or _mixer_ready:
+        return _mixer_ready
+
+    try:
+        pygame.mixer.init()
+        _mixer_ready = True
+    except Exception as e:
+        print(f"Audio playback unavailable: {e}")
+
+    return _mixer_ready
 
 # ============================================
 # VOICE MOODS - Choose your assistant's voice!
@@ -39,18 +65,24 @@ def get_voice():
 
 async def _speak_async(text):
     """Async function to generate speech using Edge TTS."""
+    if edge_tts is None:
+        print("Edge TTS is not installed; falling back to text output only.")
+        return
+
     voice = get_voice()
     temp_file = os.path.join(tempfile.gettempdir(), "assistant_voice.mp3")
     
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(temp_file)
     
-    # Play the audio
-    pygame.mixer.music.load(temp_file)
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy():
-        pygame.time.Clock().tick(10)
-    pygame.mixer.music.unload()
+    if _ensure_mixer():
+        pygame.mixer.music.load(temp_file)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+        pygame.mixer.music.unload()
+    else:
+        print(f"Generated speech audio at {temp_file}, but playback is unavailable.")
 
 def speak(audio):
     """Converts text to natural-sounding speech using Edge TTS."""
@@ -62,11 +94,24 @@ def speak(audio):
 
 def listen():
     """Listens for user input via microphone and returns recognized text."""
+    if sr is None:
+        try:
+            return input("You: ").strip() or "None"
+        except EOFError:
+            return "None"
+
     r = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Listening...")
-        r.pause_threshold = 1
-        audio = r.listen(source)
+    try:
+        with sr.Microphone() as source:
+            print("Listening...")
+            r.pause_threshold = 1
+            audio = r.listen(source)
+    except Exception as e:
+        print(f"Microphone unavailable: {e}")
+        try:
+            return input("You: ").strip() or "None"
+        except EOFError:
+            return "None"
 
     try:
         print("Recognizing...")

@@ -15,7 +15,7 @@ API_KEYS = [
 # Filter out empty/placeholder keys
 API_KEYS = [k for k in API_KEYS if k and k != "YOUR_SECOND_API_KEY_HERE" and k != "YOUR_THIRD_API_KEY_HERE"]
 
-print(f"✅ Loaded {len(API_KEYS)} API key(s)")
+print(f"Loaded {len(API_KEYS)} API key(s)")
 
 # Track which key is currently active
 current_key_index = 0
@@ -55,7 +55,7 @@ def get_ai_response(prompt):
         key = API_KEYS[current_key_index]
 
         try:
-            print(f"🔑 Attempt {attempt + 1}/{total_keys} — Using API Key {key_num} (timeout: {KEY_TIMEOUT}s)...")
+            print(f"Attempt {attempt + 1}/{total_keys} - Using API Key {key_num} (timeout: {KEY_TIMEOUT}s)...")
             start_time = time.time()
 
             # Create client with NATIVE timeout to avoid threading issues in Flask/Gunicorn
@@ -71,7 +71,7 @@ def get_ai_response(prompt):
             )
 
             elapsed = round(time.time() - start_time, 2)
-            print(f"✅ API Key {key_num} succeeded in {elapsed}s!")
+            print(f"API Key {key_num} succeeded in {elapsed}s")
             return clean_for_speech(response.text)
 
         except Exception as e:
@@ -79,16 +79,16 @@ def get_ai_response(prompt):
             error_msg = str(e).lower()
             
             if "timeout" in error_msg:
-                print(f"⏰ API Key {key_num} TIMED OUT after {elapsed}s!")
+                print(f"API Key {key_num} timed out after {elapsed}s")
                 last_error = f"Key {key_num} timed out after {KEY_TIMEOUT}s"
             else:
-                print(f"❌ API Key {key_num} FAILED: {str(e)}")
+                print(f"API Key {key_num} failed: {str(e)}")
                 last_error = str(e)
 
         # Switch to next key
         old_key = current_key_index + 1
         current_key_index = (current_key_index + 1) % total_keys
         new_key = current_key_index + 1
-        print(f"🔄 Switching from Key {old_key} → Key {new_key}...")
+        print(f"Switching from Key {old_key} to Key {new_key}...")
 
     return f"All {total_keys} API keys failed. Last error: {last_error}"

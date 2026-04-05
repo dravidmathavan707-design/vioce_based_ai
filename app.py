@@ -41,7 +41,7 @@ def index():
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Process user message and return AI response."""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     user_message = data.get('message', '')
     
     if not user_message:
@@ -61,7 +61,7 @@ def chat():
             message_doc = {
                 "user_message": user_message,
                 "ai_response": response,
-                "timestamp": datetime.datetime.utcnow()
+                "timestamp": datetime.datetime.now(datetime.UTC)
             }
             messages_collection.insert_one(message_doc)
         except Exception as e:
@@ -72,7 +72,7 @@ def chat():
 @app.route('/api/speak', methods=['POST'])
 def speak():
     """Convert text to speech and return audio file."""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     text = data.get('text', '')
     voice_type = data.get('voice', current_voice)
     
@@ -117,4 +117,6 @@ def toggle_voice():
     return jsonify({'voice': current_voice})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.getenv("PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug)

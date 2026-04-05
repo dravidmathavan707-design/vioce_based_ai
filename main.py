@@ -28,9 +28,12 @@ def run_assistant():
         if 'wikipedia' in query:
             speak('Searching Wikipedia...')
             query = query.replace("wikipedia", "")
-            results = wikipedia.summary(query, sentences=2)
-            speak("According to Wikipedia")
-            speak(results)
+            try:
+                results = wikipedia.summary(query, sentences=2)
+                speak("According to Wikipedia")
+                speak(results)
+            except Exception:
+                speak("I could not find a clear Wikipedia result for that.")
 
         elif 'open google' in query:
             webbrowser.open("google.com")
