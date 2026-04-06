@@ -21,10 +21,14 @@ print(f"Loaded {len(API_KEYS)} API key(s)")
 current_key_index = 0
 
 # Request tuning for cloud deployments like Render
-KEY_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "12"))
-KEY_RETRIES = int(os.getenv("GEMINI_RETRIES_PER_KEY", "2"))
-RETRY_DELAY = float(os.getenv("GEMINI_RETRY_DELAY_SECONDS", "1"))
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+KEY_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))
+KEY_RETRIES = int(os.getenv("GEMINI_RETRIES_PER_KEY", "3"))
+RETRY_DELAY = float(os.getenv("GEMINI_RETRY_DELAY_SECONDS", "1.5"))
+PRIMARY_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+MODEL_CANDIDATES_RAW = os.getenv("GEMINI_MODEL_CANDIDATES", "gemini-2.0-flash,gemini-1.5-flash")
+MODEL_CANDIDATES = [m.strip() for m in MODEL_CANDIDATES_RAW.split(",") if m.strip()]
+if PRIMARY_MODEL not in MODEL_CANDIDATES:
+    MODEL_CANDIDATES.insert(0, PRIMARY_MODEL)
 
 # System prompt to get short, voice-friendly responses
 SYSTEM_PROMPT = """You are a helpful voice assistant. 
@@ -61,21 +65,33 @@ def get_ai_response(prompt):
             try:
                 print(
                     f"Attempt {attempt + 1}/{total_keys}, retry {retry_index + 1}/{KEY_RETRIES} "
-                    f"- Key {key_num} (timeout: {KEY_TIMEOUT}s, model: {MODEL_NAME})"
+                    f"- Key {key_num} (timeout: {KEY_TIMEOUT}s, models: {','.join(MODEL_CANDIDATES)})"
                 )
                 start_time = time.time()
 
                 # Use SDK-native request timeout to avoid thread issues in web workers
                 client = genai.Client(api_key=key, http_options={"timeout": KEY_TIMEOUT})
 
-                response = client.models.generate_content(
-                    model=MODEL_NAME,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        max_output_tokens=150,
-                    ),
-                )
+                response = None
+                last_model_error = None
+
+                for model_name in MODEL_CANDIDATES:
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                                max_output_tokens=120,
+                            ),
+                        )
+                        break
+                    except Exception as model_error:
+                        last_model_error = str(model_error)
+                        print(f"Model {model_name} failed for Key {key_num}: {last_model_error}")
+
+                if response is None:
+                    raise RuntimeError(last_model_error or "All configured models failed")
 
                 elapsed = round(time.time() - start_time, 2)
                 print(f"API Key {key_num} succeeded in {elapsed}s")
